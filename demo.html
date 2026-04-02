@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>6-Layer Agentic RAG Pipeline</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-base:      #0d0f14;
+      --bg-surface:   #13161e;
+      --bg-elevated:  #1a1d28;
+      --bg-card:      #1f2233;
+      --bg-input:     #252840;
+      --border:       #2a2e45;
+      --border-focus: #6c63ff;
+      --accent:       #6c63ff;
+      --accent-light: #8b84ff;
+      --accent-glow:  rgba(108,99,255,0.18);
+      --cyan:         #00d4ff;
+      --green:        #00e5a0;
+      --green-glow:   rgba(0,229,160,0.15);
+      --rose:         #ff6584;
+      --amber:        #ffbe4f;
+      --text-1:       #eef0f8;
+      --text-2:       #9499b5;
+      --text-3:       #5a5f7a;
+      --radius-sm:    6px;
+      --radius:       12px;
+      --radius-lg:    18px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--bg-base); color: var(--text-1); font-family: 'Inter', sans-serif; font-size: 14px; line-height: 1.6; overflow: hidden; }
+
+    /* ── Layout ── */
+    .app { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: 64px 1fr; height: 100vh; }
+
+    /* ── Topbar ── */
+    .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 24px; background: var(--bg-surface); border-bottom: 1px solid var(--border); position: relative; z-index: 10; }
+    .topbar-logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: -0.3px; }
+    .topbar-logo .icon { width: 34px; height: 34px; background: linear-gradient(135deg, var(--accent), var(--cyan)); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: 0 0 20px var(--accent-glow); }
+    .topbar-subtitle { color: var(--text-2); font-size: 11px; font-weight: 400; }
+    .topbar-status { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+
+    .stat-pill { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 999px; }
+    .stat-pill .label { color: var(--text-2); font-size: 11px; }
+    .stat-pill .value { font-weight: 600; font-size: 13px; color: var(--cyan); font-family: 'JetBrains Mono', monospace; }
+
+    /* backend status badge */
+    #backend-badge { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 500; transition: all 0.3s; }
+    #backend-badge.online  { background: rgba(0,229,160,0.1); border: 1px solid rgba(0,229,160,0.3); color: var(--green); }
+    #backend-badge.offline { background: rgba(255,101,132,0.1); border: 1px solid rgba(255,101,132,0.3); color: var(--rose); }
+    #backend-badge.checking { background: rgba(255,190,79,0.1); border: 1px solid rgba(255,190,79,0.3); color: var(--amber); }
+    #backend-badge::before { content:''; width:7px; height:7px; border-radius:50%; background:currentColor; }
+    #backend-badge.online::before { animation: pulse-dot 2s ease-in-out infinite; }
+
+    @keyframes pulse-dot { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,229,160,0.4)} 50%{opacity:.7;box-shadow:0 0 0 5px rgba(0,229,160,0)} }
+
+    /* API URL input */
+    .api-url-wrap { display: flex; align-items: center; gap: 6px; }
+    .api-url-wrap input { padding: 5px 10px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-2); font-family: 'JetBrains Mono', monospace; font-size: 11px; width: 190px; }
+    .api-url-wrap input:focus { outline: none; border-color: var(--border-focus); color: var(--text-1); }
+    .btn-check { padding: 5px 10px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-2); font-size: 11px; cursor: pointer; transition: all .2s; }
+    .btn-check:hover { color: var(--text-1); border-color: var(--accent); }
+
+    /* ── Sidebar ── */
+    .sidebar { background: var(--bg-surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 18px; }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .section-title { font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+
+    .provider-tabs { display: flex; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; gap: 3px; }
+    .provider-tab { flex: 1; padding: 7px 0; text-align: center; font-size: 12px; font-weight: 500; border-radius: 4px; cursor: pointer; color: var(--text-2); transition: all .2s; border: none; background: transparent; }
+    .provider-tab.active { background: var(--accent); color: #fff; box-shadow: 0 0 12px var(--accent-glow); }
+    .provider-tab:hover:not(.active) { color: var(--text-1); background: var(--bg-card); }
+
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    .field label { font-size: 11px; font-weight: 500; color: var(--text-2); }
+
+    .select-wrap { position: relative; }
+    .select-wrap::after { content:'▾'; position:absolute; right:10px; top:50%; transform:translateY(-50%); color:var(--text-3); pointer-events:none; font-size:11px; }
+    select { width:100%; padding:8px 28px 8px 10px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-1); font-family:'Inter',sans-serif; font-size:12px; appearance:none; cursor:pointer; transition:border-color .2s; }
+    select:focus { outline:none; border-color:var(--border-focus); }
+
+    .slider-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .slider-val { font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent-light); }
+    input[type="range"] { width:100%; height:4px; background:var(--bg-elevated); border-radius:4px; appearance:none; outline:none; cursor:pointer; }
+    input[type="range"]::-webkit-slider-thumb { appearance:none; width:14px; height:14px; background:var(--accent); border-radius:50%; box-shadow:0 0 8px var(--accent-glow); }
+
+    .num-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    input[type="number"] { width:100%; padding:7px 8px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-1); font-family:'Inter',sans-serif; font-size:12px; text-align:center; }
+    input[type="number"]:focus { outline:none; border-color:var(--border-focus); }
+    input::-webkit-inner-spin-button, input::-webkit-outer-spin-button { display:none; }
+
+    .toggle-row { display:flex; align-items:center; justify-content:space-between; }
+    .toggle-label { font-size:12px; color:var(--text-1); }
+    .toggle { position:relative; width:38px; height:20px; cursor:pointer; }
+    .toggle input { display:none; }
+    .toggle-track { position:absolute; inset:0; background:var(--bg-elevated); border:1px solid var(--border); border-radius:10px; transition:all .2s; }
+    .toggle input:checked + .toggle-track { background:var(--accent); border-color:var(--accent); }
+    .toggle-thumb { position:absolute; top:2px; left:2px; width:14px; height:14px; background:#fff; border-radius:50%; transition:transform .2s; }
+    .toggle input:checked ~ .toggle-thumb { transform:translateX(18px); }
+
+    .divider { height:1px; background:var(--border); margin:2px 0; }
+
+    /* apply config button */
+    .btn-apply { width:100%; padding:10px 0; background:var(--accent); border:none; border-radius:var(--radius-sm); color:#fff; font-family:'Inter',sans-serif; font-size:12px; font-weight:600; cursor:pointer; transition:all .2s; box-shadow:0 0 14px var(--accent-glow); }
+    .btn-apply:hover { background:var(--accent-light); transform:translateY(-1px); }
+    .btn-apply:active { transform:translateY(0); }
+    .btn-apply:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+
+    .btn-reindex { width:100%; padding:10px 0; background:transparent; border:1px solid var(--border); border-radius:var(--radius-sm); color:var(--text-2); font-family:'Inter',sans-serif; font-size:12px; font-weight:500; cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; gap:6px; }
+    .btn-reindex:hover { border-color:var(--accent); color:var(--accent-light); }
+    .btn-reindex:disabled { opacity:.4; cursor:not-allowed; }
+
+    /* ── Main ── */
+    .main { display:flex; flex-direction:column; overflow:hidden; }
+
+    /* ── Pipeline bar ── */
+    .pipeline-bar { padding:12px 24px; background:var(--bg-surface); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:4px; overflow-x:auto; }
+    .pipeline-bar::-webkit-scrollbar { height:0; }
+
+    .pipe-step { display:flex; align-items:center; gap:4px; flex-shrink:0; }
+    .pipe-node { display:flex; align-items:center; gap:7px; padding:5px 12px; border-radius:999px; font-size:11px; font-weight:500; border:1px solid transparent; transition:all .3s; white-space:nowrap; }
+    .pipe-node.idle   { background:var(--bg-elevated); border-color:var(--border); color:var(--text-3); }
+    .pipe-node.active { background:rgba(108,99,255,.15); border-color:var(--accent); color:var(--accent-light); box-shadow:0 0 10px var(--accent-glow); }
+    .pipe-node.done   { background:rgba(0,229,160,.1); border-color:rgba(0,229,160,.3); color:var(--green); }
+    .pipe-dot { width:6px; height:6px; border-radius:50%; background:currentColor; }
+    .pipe-node.active .pipe-dot { animation:blink 1s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .pipe-arrow { color:var(--text-3); font-size:12px; margin:0 2px; }
+
+    /* ── Chat ── */
+    .chat-wrap { flex:1; overflow-y:auto; padding:24px; display:flex; flex-direction:column; gap:20px; }
+    .chat-wrap::-webkit-scrollbar { width:4px; }
+    .chat-wrap::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+    .empty-state { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; opacity:.7; text-align:center; padding:40px; }
+    .empty-icon { width:64px; height:64px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); display:flex; align-items:center; justify-content:center; font-size:28px; }
+    .empty-title { font-size:18px; font-weight:600; }
+    .empty-sub { color:var(--text-2); font-size:13px; max-width:360px; }
+
+    .suggest-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:8px; max-width:520px; }
+    .suggest-card { padding:12px 14px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); cursor:pointer; font-size:12px; text-align:left; color:var(--text-2); transition:all .2s; line-height:1.5; }
+    .suggest-card:hover { border-color:var(--accent); color:var(--text-1); background:var(--bg-elevated); }
+
+    /* Messages */
+    .msg { display:flex; gap:12px; align-items:flex-start; }
+    .msg.user { flex-direction:row-reverse; }
+    .avatar { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+    .msg.user .avatar { background:var(--accent); }
+    .msg.assistant .avatar { background:linear-gradient(135deg,#1a1d28,#252840); border:1px solid var(--border); }
+
+    .bubble { max-width:68%; padding:14px 16px; border-radius:var(--radius); line-height:1.7; font-size:13.5px; }
+    .msg.user .bubble { background:linear-gradient(135deg,var(--accent),#5a51e8); border-radius:var(--radius) var(--radius) 4px var(--radius); box-shadow:0 4px 16px var(--accent-glow); }
+    .msg.assistant .bubble { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius) var(--radius) var(--radius) 4px; }
+
+    /* Citations */
+    .citations-toggle { margin-top:10px; font-size:11px; color:var(--text-3); cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; transition:color .2s; }
+    .citations-toggle:hover { color:var(--text-2); }
+    .citations-panel { margin-top:8px; padding:12px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); display:none; }
+    .citations-panel.open { display:block; }
+
+    .cite-item { display:flex; align-items:flex-start; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); font-size:12px; }
+    .cite-item:last-child { border-bottom:none; }
+    .cite-num { width:20px; height:20px; background:var(--accent-glow); border:1px solid var(--accent); border-radius:4px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:var(--accent-light); flex-shrink:0; }
+    .cite-body { flex:1; }
+    .cite-file { font-weight:500; color:var(--cyan); font-family:'JetBrains Mono',monospace; font-size:11px; }
+    .cite-score { color:var(--text-3); font-size:10px; margin-left:8px; }
+    .cite-snippet { color:var(--text-2); margin-top:3px; line-height:1.5; }
+
+    /* Ragas — collapsible panel (same pattern as citations) */
+    .ragas-toggle { margin-top:8px; font-size:11px; color:var(--text-3); cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; transition:color .2s; }
+    .ragas-toggle:hover { color:var(--text-2); }
+    .ragas-panel { margin-top:8px; padding:12px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); display:none; }
+    .ragas-panel.open { display:block; }
+    .ragas-row { display:flex; flex-direction:column; gap:8px; }
+    .ragas-metric { display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px; }
+    .ragas-metric:last-child { border-bottom:none; }
+    .ragas-name { color:var(--text-2); font-weight:500; }
+    .ragas-score { font-family:'JetBrains Mono',monospace; font-weight:600; font-size:12px; }
+    .ragas-bar-wrap { flex:1; margin:0 12px; height:4px; background:var(--bg-card); border-radius:4px; overflow:hidden; }
+    .ragas-bar { height:100%; border-radius:4px; transition:width .4s; }
+    .ragas-high { color:var(--green); } .ragas-bar.high { background:var(--green); }
+    .ragas-mid  { color:var(--amber); } .ragas-bar.mid  { background:var(--amber); }
+    .ragas-low  { color:var(--rose);  } .ragas-bar.low  { background:var(--rose); }
+
+    /* Thinking */
+    .thinking { display:flex; align-items:center; gap:12px; }
+    .thinking-dots { display:flex; gap:5px; }
+    .thinking-dots span { width:7px; height:7px; background:var(--accent); border-radius:50%; animation:dot-bounce 1.4s ease-in-out infinite; }
+    .thinking-dots span:nth-child(2) { animation-delay:.2s; }
+    .thinking-dots span:nth-child(3) { animation-delay:.4s; }
+    @keyframes dot-bounce { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+
+    /* Meta chips */
+    .meta-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+    .meta-chip { padding:3px 8px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:999px; font-size:10px; color:var(--text-3); font-family:'JetBrains Mono',monospace; }
+
+    /* Input bar */
+    .input-bar { padding:16px 24px; background:var(--bg-surface); border-top:1px solid var(--border); }
+    .input-wrap { display:flex; align-items:flex-end; gap:10px; background:var(--bg-input); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; transition:border-color .2s,box-shadow .2s; }
+    .input-wrap:focus-within { border-color:var(--border-focus); box-shadow:0 0 0 3px var(--accent-glow); }
+    textarea#chat-input { flex:1; background:transparent; border:none; outline:none; color:var(--text-1); font-family:'Inter',sans-serif; font-size:14px; resize:none; max-height:120px; line-height:1.6; }
+    textarea::placeholder { color:var(--text-3); }
+    .btn-send { width:36px; height:36px; background:var(--accent); border:none; border-radius:var(--radius-sm); color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; flex-shrink:0; transition:all .2s; box-shadow:0 0 16px var(--accent-glow); }
+    .btn-send:hover { transform:scale(1.05); background:var(--accent-light); }
+    .btn-send:disabled { opacity:.4; cursor:not-allowed; transform:none; }
+    .input-hint { margin-top:8px; font-size:11px; color:var(--text-3); text-align:center; }
+
+    /* Upload */
+    .upload-zone { border:1.5px dashed var(--border); border-radius:var(--radius); padding:12px; text-align:center; cursor:pointer; color:var(--text-3); font-size:12px; transition:all .2s; }
+    .upload-zone:hover { border-color:var(--accent); color:var(--text-2); }
+    .upload-zone input { display:none; }
+    .upload-list { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+    .upload-file { display:flex; align-items:center; gap:6px; padding:5px 8px; background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); font-size:11px; color:var(--text-2); }
+    .upload-file .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:'JetBrains Mono',monospace; }
+    .upload-file .rm { cursor:pointer; color:var(--text-3); transition:color .15s; }
+    .upload-file .rm:hover { color:var(--rose); }
+
+    .abstain-badge { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:rgba(255,101,132,.12); border:1px solid rgba(255,101,132,.3); border-radius:999px; color:var(--rose); font-size:11px; font-weight:500; margin-bottom:6px; }
+
+    /* Toast */
+    #toast { position:fixed; bottom:24px; right:24px; padding:10px 18px; border-radius:var(--radius-sm); font-size:12px; font-weight:500; opacity:0; transform:translateY(8px); transition:all .3s; pointer-events:none; z-index:999; }
+    #toast.show { opacity:1; transform:translateY(0); }
+    #toast.success { background:rgba(0,229,160,.15); border:1px solid rgba(0,229,160,.4); color:var(--green); }
+    #toast.error   { background:rgba(255,101,132,.15); border:1px solid rgba(255,101,132,.4); color:var(--rose); }
+    #toast.info    { background:rgba(108,99,255,.15); border:1px solid rgba(108,99,255,.4); color:var(--accent-light); }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="topbar-logo">
+      <div class="icon">🏗️</div>
+      <div>
+        <div>Agentic RAG Pipeline</div>
+        <div class="topbar-subtitle">HyDE → Lazy Router → Hybrid Retrieval → Distillation → Critique → Output</div>
+      </div>
+    </div>
+
+    <div class="topbar-status">
+      <!-- API URL -->
+      <div class="api-url-wrap">
+        <input type="text" id="api-url" value="http://localhost:8000" placeholder="Backend URL" title="FastAPI server URL" />
+        <button class="btn-check" onclick="checkBackend()">Connect</button>
+      </div>
+
+      <div class="stat-pill"><span class="label">Provider</span><span class="value" id="stat-provider">—</span></div>
+      <div class="stat-pill"><span class="label">Embedding</span><span class="value" id="stat-embedding">—</span></div>
+      <div class="stat-pill"><span class="label">Docs</span><span class="value" id="stat-docs">0</span></div>
+      <div class="stat-pill"><span class="label">Chunks</span><span class="value" id="stat-chunks">—</span></div>
+
+      <div id="backend-badge" class="checking">Checking…</div>
+    </div>
+  </header>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+
+    <!-- Provider -->
+    <div>
+      <div class="section-title">Provider</div>
+      <div class="provider-tabs">
+        <button class="provider-tab active" data-provider="openai">OpenAI</button>
+        <button class="provider-tab" data-provider="gemini">Gemini</button>
+        <button class="provider-tab" data-provider="ollama">Ollama</button>
+      </div>
+    </div>
+
+    <!-- LLM -->
+    <div>
+      <div class="section-title">LLM Model</div>
+      <div class="field">
+        <label>Chat model</label>
+        <div class="select-wrap"><select id="llm-model"></select></div>
+      </div>
+      <div class="field" style="margin-top:12px">
+        <label>Temperature</label>
+        <div class="slider-row">
+          <span style="font-size:11px;color:var(--text-3)">Precise</span>
+          <span class="slider-val" id="temp-val">0.00</span>
+          <span style="font-size:11px;color:var(--text-3)">Creative</span>
+        </div>
+        <input type="range" id="temperature" min="0" max="1" step="0.05" value="0" />
+      </div>
+    </div>
+
+    <!-- Embedding -->
+    <div>
+      <div class="section-title">Embedding Model</div>
+      <div class="field">
+        <label>Embedding model</label>
+        <div class="select-wrap"><select id="embedding-model"></select></div>
+      </div>
+    </div>
+
+    <!-- Reranker -->
+    <div>
+      <div class="section-title">Reranker</div>
+      <div class="field">
+        <label>Cross-encoder model</label>
+        <div class="select-wrap">
+          <select id="reranker">
+            <option>BAAI/bge-reranker-v2-m3</option>
+            <option>BAAI/bge-reranker-large</option>
+            <option>cross-encoder/ms-marco-MiniLM-L-6-v2</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Retrieval -->
+    <div>
+      <div class="section-title">Retrieval</div>
+      <div class="num-grid">
+        <div class="field"><label>Dense top-k</label><input type="number" id="dense-topk" value="20" min="1" max="100" /></div>
+        <div class="field"><label>Rerank top-k</label><input type="number" id="rerank-topk" value="5" min="1" max="50" /></div>
+        <div class="field"><label>BM25 top-k</label><input type="number" id="bm25-topk" value="20" min="1" max="100" /></div>
+        <div class="field"><label>Max retries</label><input type="number" id="max-retries" value="2" min="0" max="5" /></div>
+      </div>
+    </div>
+
+    <!-- Chunking -->
+    <div>
+      <div class="section-title">Chunking</div>
+      <div class="num-grid">
+        <div class="field"><label>Chunk size</label><input type="number" id="chunk-size" value="256" min="64" max="2048" step="32" /></div>
+        <div class="field"><label>Overlap</label><input type="number" id="chunk-overlap" value="32" min="0" max="512" step="8" /></div>
+      </div>
+    </div>
+
+    <!-- Evaluation -->
+    <div>
+      <div class="section-title">Evaluation</div>
+      <div class="toggle-row">
+        <span class="toggle-label">Enable Ragas</span>
+        <label class="toggle">
+          <input type="checkbox" id="enable-ragas" checked />
+          <div class="toggle-track"></div>
+          <div class="toggle-thumb"></div>
+        </label>
+      </div>
+    </div>
+
+    <button class="btn-apply" id="btn-apply" onclick="applyConfig()">⚡ Apply Configuration</button>
+
+    <div class="divider"></div>
+
+    <!-- Documents -->
+    <div>
+      <div class="section-title">Documents</div>
+      <label class="upload-zone" for="file-input">
+        <input type="file" id="file-input" multiple accept=".pdf,.txt,.md,.docx" />
+        📎 Drop files or click to upload<br/>
+        <span style="font-size:10px;display:block;margin-top:3px">PDF · TXT · MD · DOCX</span>
+      </label>
+      <div class="upload-list" id="upload-list"></div>
+    </div>
+
+    <button class="btn-reindex" id="btn-reindex" onclick="ingestFiles()">🔄 Index &amp; Upload</button>
+
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- Pipeline bar -->
+    <div class="pipeline-bar">
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-query-rewrite"><div class="pipe-dot"></div>Query Rewrite</div><span class="pipe-arrow">→</span></div>
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-decompose"><div class="pipe-dot"></div>Decompose</div><span class="pipe-arrow">→</span></div>
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-router"><div class="pipe-dot"></div>Lazy Router</div><span class="pipe-arrow">→</span></div>
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-retrieval"><div class="pipe-dot"></div>Hybrid Retrieval</div><span class="pipe-arrow">→</span></div>
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-distill"><div class="pipe-dot"></div>Distillation</div><span class="pipe-arrow">→</span></div>
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-critique"><div class="pipe-dot"></div>Critique</div><span class="pipe-arrow">→</span></div>
+      <div class="pipe-step"><div class="pipe-node idle" id="pipe-output"><div class="pipe-dot"></div>Output</div></div>
+    </div>
+
+    <!-- Chat -->
+    <div class="chat-wrap" id="chat-wrap">
+      <div class="empty-state" id="empty-state">
+        <div class="empty-icon">🤖</div>
+        <div class="empty-title">RAG Pipeline Ready</div>
+        <div class="empty-sub">Configure your provider, upload documents, then ask anything below.</div>
+        <div class="suggest-grid">
+          <button class="suggest-card" onclick="sendSuggestion(this)">What are the main topics covered in the documents?</button>
+          <button class="suggest-card" onclick="sendSuggestion(this)">Summarize the key findings from the uploaded files</button>
+          <button class="suggest-card" onclick="sendSuggestion(this)">What is the methodology described in the research?</button>
+          <button class="suggest-card" onclick="sendSuggestion(this)">List all important dates and events mentioned</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-bar">
+      <div class="input-wrap">
+        <textarea id="chat-input" placeholder="Ask a question about your documents…" rows="1"></textarea>
+        <button class="btn-send" id="btn-send">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter to send · Shift+Enter for newline · /clear to reset</div>
+    </div>
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════════════
+   CONFIG
+══════════════════════════════════════════════════════ */
+const LLM_CHOICES = {
+  openai: ['gpt-4o','gpt-4o-mini','gpt-4-turbo','gpt-3.5-turbo'],
+  gemini: ['gemini-2.0-flash','gemini-2.0-flash-lite','gemini-1.5-pro','gemini-1.5-flash'],
+  ollama: ['llama3.1','llama3.2','qwen2.5','mistral','phi3','gemma2'],
+};
+const EMBEDDING_CHOICES = {
+  openai: ['text-embedding-3-small','text-embedding-3-large','text-embedding-ada-002'],
+  gemini: ['models/text-embedding-004','models/embedding-001'],
+  ollama: ['Qwen3-Embedding-0.6B','nomic-embed-text','mxbai-embed-large','all-minilm'],
+};
+const PIPE_STEPS = ['pipe-query-rewrite','pipe-decompose','pipe-router','pipe-retrieval','pipe-distill','pipe-critique','pipe-output'];
+const PIPE_DELAYS = [600,400,350,900,550,500,300];
+
+let currentProvider = 'openai';
+let uploadedFiles   = [];
+let isProcessing    = false;
+let backendOnline   = false;
+
+function apiUrl() { return (document.getElementById('api-url').value || 'http://localhost:8000').replace(/\/$/, ''); }
+
+/* ── Toast ───────────────────────────────────────────── */
+let _toastTimer;
+function toast(msg, type = 'info', ms = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `show ${type}`;
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => { el.className = ''; }, ms);
+}
+
+/* ── Backend check ───────────────────────────────────── */
+async function checkBackend() {
+  const badge = document.getElementById('backend-badge');
+  badge.className = 'checking'; badge.textContent = 'Checking…';
+  try {
+    const r = await fetch(`${apiUrl()}/api/status`, { signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    badge.className = 'online'; badge.textContent = 'Online';
+    backendOnline = true;
+    syncStatus(data);
+    toast('✅ Backend connected', 'success');
+  } catch {
+    badge.className = 'offline'; badge.textContent = 'Offline';
+    backendOnline = false;
+    toast('⚠️ Backend offline — start uvicorn api_server:app', 'error', 5000);
+  }
+}
+
+function syncStatus(data) {
+  if (!data) return;
+  document.getElementById('stat-provider').textContent  = (data.provider  || '—').toUpperCase();
+  document.getElementById('stat-embedding').textContent = (data.embedding_model || '—').split('/').pop();
+  document.getElementById('stat-docs').textContent   = data.index?.docs   ?? '0';
+  document.getElementById('stat-chunks').textContent = data.index?.chunks ?? '—';
+}
+
+/* ── Provider tabs ───────────────────────────────────── */
+document.querySelectorAll('.provider-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.provider-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentProvider = tab.dataset.provider;
+    updateModelDropdowns(currentProvider);
+  });
+});
+
+function updateModelDropdowns(p) {
+  const llm = document.getElementById('llm-model');
+  const emb = document.getElementById('embedding-model');
+  llm.innerHTML = LLM_CHOICES[p].map(m => `<option>${m}</option>`).join('');
+  emb.innerHTML = EMBEDDING_CHOICES[p].map(m => `<option>${m}</option>`).join('');
+}
+
+updateModelDropdowns('openai');
+
+document.getElementById('temperature').addEventListener('input', e => {
+  document.getElementById('temp-val').textContent = parseFloat(e.target.value).toFixed(2);
+});
+
+/* ── Apply configuration → POST /api/configure ───────── */
+async function applyConfig() {
+  if (!backendOnline) { toast('Backend offline', 'error'); return; }
+  const btn = document.getElementById('btn-apply');
+  btn.disabled = true; btn.textContent = '⏳ Applying…';
+
+  const cfg = buildConfig();
+  try {
+    const r = await fetch(`${apiUrl()}/api/configure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cfg),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    syncStatus({ provider: cfg.provider, embedding_model: cfg.embedding_model, index: null });
+    toast('✅ Configuration applied', 'success');
+  } catch (e) {
+    toast(`❌ ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ Apply Configuration';
+  }
+}
+
+function buildConfig() {
+  return {
+    provider:        currentProvider,
+    llm_model:       document.getElementById('llm-model').value,
+    embedding_model: document.getElementById('embedding-model').value,
+    temperature:     parseFloat(document.getElementById('temperature').value),
+    reranker:        document.getElementById('reranker').value,
+    retrieval_top_k: parseInt(document.getElementById('dense-topk').value),
+    bm25_top_k:      parseInt(document.getElementById('bm25-topk').value),
+    rerank_top_k:    parseInt(document.getElementById('rerank-topk').value),
+    max_retries:     parseInt(document.getElementById('max-retries').value),
+    chunk_size:      parseInt(document.getElementById('chunk-size').value),
+    chunk_overlap:   parseInt(document.getElementById('chunk-overlap').value),
+    enable_ragas:    document.getElementById('enable-ragas').checked,
+  };
+}
+
+/* ── File upload ─────────────────────────────────────── */
+document.getElementById('file-input').addEventListener('change', e => {
+  Array.from(e.target.files).forEach(f => {
+    if (!uploadedFiles.find(u => u.name === f.name)) uploadedFiles.push(f);
+  });
+  renderUploadList();
+});
+
+function renderUploadList() {
+  document.getElementById('upload-list').innerHTML = uploadedFiles.map((f, i) => `
+    <div class="upload-file">
+      <span>${fileIcon(f.name)}</span>
+      <span class="name">${f.name}</span>
+      <span class="rm" onclick="removeFile(${i})">✕</span>
+    </div>`).join('');
+}
+
+function fileIcon(n) {
+  if (n.endsWith('.pdf'))  return '📄';
+  if (n.endsWith('.md'))   return '📝';
+  if (n.endsWith('.docx')) return '📘';
+  return '📃';
+}
+
+function removeFile(i) {
+  uploadedFiles.splice(i, 1);
+  renderUploadList();
+}
+
+/* ── Ingest → POST /api/ingest ───────────────────────── */
+async function ingestFiles() {
+  if (!backendOnline) { toast('Backend offline', 'error'); return; }
+  if (uploadedFiles.length === 0) { toast('No files selected', 'info'); return; }
+
+  const btn = document.getElementById('btn-reindex');
+  btn.disabled = true; btn.textContent = '⏳ Indexing…';
+
+  const form = new FormData();
+  uploadedFiles.forEach(f => form.append('files', f));
+  form.append('chunk_size',    document.getElementById('chunk-size').value);
+  form.append('chunk_overlap', document.getElementById('chunk-overlap').value);
+
+  try {
+    const r = await fetch(`${apiUrl()}/api/ingest`, { method: 'POST', body: form });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+
+    document.getElementById('stat-docs').textContent   = data.index.docs;
+    document.getElementById('stat-chunks').textContent = data.index.chunks;
+    toast(`✅ Indexed ${data.ingested_docs} file(s), ${data.total_chunks} chunks`, 'success');
+
+    if (data.failed?.length) {
+      toast(`⚠️ ${data.failed.length} file(s) failed to parse`, 'error', 6000);
+    }
+  } catch (e) {
+    toast(`❌ ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '🔄 Index & Upload';
+  }
+}
+
+/* ── Pipeline animation ──────────────────────────────── */
+function resetPipeline() {
+  PIPE_STEPS.forEach(id => { document.getElementById(id).className = 'pipe-node idle'; });
+}
+
+async function animatePipeline(durationMs) {
+  resetPipeline();
+  const stepMs = durationMs / PIPE_STEPS.length;
+  for (let i = 0; i < PIPE_STEPS.length; i++) {
+    await sleep(i === 0 ? 0 : stepMs);
+    if (i > 0) document.getElementById(PIPE_STEPS[i-1]).className = 'pipe-node done';
+    document.getElementById(PIPE_STEPS[i]).className = 'pipe-node active';
+  }
+  // finish last node after response arrives (caller handles this)
+}
+
+function finishPipeline() {
+  PIPE_STEPS.forEach(id => { document.getElementById(id).className = 'pipe-node done'; });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/* ── Send message → POST /api/query ─────────────────── */
+async function sendMessage(text) {
+  if (!text.trim() || isProcessing) return;
+
+  if (!backendOnline) {
+    toast('Backend offline — click Connect first', 'error');
+    return;
+  }
+
+  isProcessing = true;
+  document.getElementById('btn-send').disabled = true;
+  document.getElementById('chat-input').value = '';
+  autoResizeTextarea();
+  document.getElementById('empty-state').style.display = 'none';
+
+  appendMessage('user', text);
+  const thinkId = appendThinking();
+  animatePipeline(4000); // animate while waiting
+
+  try {
+    const r = await fetch(`${apiUrl()}/api/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: text, use_history: true }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      const msg = typeof data.detail === 'object' ? data.detail.error : (data.detail || r.statusText);
+      throw new Error(msg);
+    }
+
+    document.getElementById(thinkId)?.remove();
+    finishPipeline();
+
+    appendMessage(
+      'assistant',
+      data.answer,
+      data.citations,
+      data.ragas,
+      data.abstained,
+      data.meta,
+    );
+
+    // refresh stats
+    const status = await fetch(`${apiUrl()}/api/status`).then(r => r.json()).catch(() => null);
+    if (status) syncStatus(status);
+
+  } catch (e) {
+    document.getElementById(thinkId)?.remove();
+    resetPipeline();
+    appendErrorMessage(e.message);
+    toast(`❌ ${e.message}`, 'error', 6000);
+  } finally {
+    isProcessing = false;
+    document.getElementById('btn-send').disabled = false;
+    document.getElementById('chat-input').focus();
+  }
+}
+
+/* ── Message rendering ───────────────────────────────── */
+function appendMessage(role, content, citations, ragas, abstain, meta) {
+  const wrap = document.getElementById('chat-wrap');
+  const div  = document.createElement('div');
+  div.className = `msg ${role}`;
+
+  const avatar = role === 'user'
+    ? `<div class="avatar">👤</div>`
+    : `<div class="avatar">🤖</div>`;
+
+  let inner = '';
+  if (role === 'assistant' && abstain) inner += `<div class="abstain-badge">🚫 Abstained</div>`;
+
+  // Strip any embedded --- Sources --- and --- Quality Metrics --- appended by older pipeline versions
+  const cleanContent = String(content)
+    .replace(/\n+---\s*Sources\s*---[\s\S]*/i, '')
+    .replace(/\n+---\s*Quality Metrics[\s\S]*/i, '')
+    .trim();
+
+  inner += `<div class="bubble">${fmt(cleanContent)}</div>`;
+
+  if (role === 'assistant' && citations?.length) {
+    const cid = 'cit-' + Date.now();
+    inner += `
+      <div class="citations-toggle" onclick="toggleCit('${cid}')">
+        📚 ${citations.length} source${citations.length>1?'s':''} — click to expand ▸
+      </div>
+      <div class="citations-panel" id="${cid}">
+        ${citations.map(c => `
+          <div class="cite-item">
+            <div class="cite-num">${c.id}</div>
+            <div class="cite-body">
+              <div><span class="cite-file">${c.file}</span><span class="cite-score">relevance: ${c.score.toFixed(3)}</span></div>
+              <div class="cite-snippet">${escHtml(c.snippet)}…</div>
+            </div>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  if (role === 'assistant' && ragas && Object.keys(ragas).length) {
+    const rid = 'ragas-' + Date.now();
+    const entries = Object.entries(ragas);
+    inner += `
+      <div class="ragas-toggle" onclick="togglePanel('${rid}')">
+        📊 Quality Metrics (Ragas) — click to expand ▸
+      </div>
+      <div class="ragas-panel" id="${rid}">
+        <div class="ragas-row">
+          ${entries.map(([k, v]) => {
+            const tier = v >= .7 ? 'high' : v >= .4 ? 'mid' : 'low';
+            return `
+              <div class="ragas-metric">
+                <span class="ragas-name">${escHtml(k)}</span>
+                <div class="ragas-bar-wrap"><div class="ragas-bar ${tier}" style="width:${(v*100).toFixed(1)}%"></div></div>
+                <span class="ragas-score ragas-${tier}">${v.toFixed(3)}</span>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+  }
+
+  if (role === 'assistant' && meta) {
+    const chips = [];
+    if (meta.retry_count > 0) chips.push(`retries: ${meta.retry_count}`);
+    if (meta.needs_retrieval === false) chips.push('no-retrieval');
+    if (meta.critique_passed !== undefined) chips.push(`critique: ${meta.critique_passed ? '✓' : '✗'}`);
+    if (meta.sub_questions?.length) chips.push(`sub-q: ${meta.sub_questions.length}`);
+    if (chips.length) {
+      inner += `<div class="meta-row">${chips.map(c=>`<div class="meta-chip">${c}</div>`).join('')}</div>`;
+    }
+  }
+
+  div.innerHTML = role === 'user'
+    ? `${inner}${avatar}`
+    : `${avatar}<div style="flex:1">${inner}</div>`;
+
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function appendErrorMessage(msg) {
+  const wrap = document.getElementById('chat-wrap');
+  const div  = document.createElement('div');
+  div.className = 'msg assistant';
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div style="flex:1">
+      <div class="bubble" style="border-color:rgba(255,101,132,.3);background:rgba(255,101,132,.06)">
+        ❌ <strong>Error:</strong> ${escHtml(msg)}
+      </div>
+    </div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function appendThinking() {
+  const wrap = document.getElementById('chat-wrap');
+  const div  = document.createElement('div');
+  const id   = 'thinking-' + Date.now();
+  div.id     = id;
+  div.className = 'msg assistant';
+  div.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble thinking">
+      <div class="thinking-dots"><span></span><span></span><span></span></div>
+      <span style="color:var(--text-3);font-size:12px">Running 6-layer pipeline…</span>
+    </div>`;
+  wrap.appendChild(div);
+  wrap.scrollTop = wrap.scrollHeight;
+  return id;
+}
+
+function toggleCit(id)   { document.getElementById(id)?.classList.toggle('open'); }
+function togglePanel(id) { document.getElementById(id)?.classList.toggle('open'); }
+
+function fmt(text) {
+  return escHtml(text)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code style="font-family:JetBrains Mono,monospace;background:var(--bg-elevated);padding:1px 5px;border-radius:3px;font-size:12px">$1</code>')
+    .replace(/\n/g, '<br/>');
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Input handling ──────────────────────────────────── */
+const input = document.getElementById('chat-input');
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    const val = input.value.trim();
+    if (val === '/clear') { clearChat(); input.value = ''; return; }
+    sendMessage(val);
+  }
+});
+
+input.addEventListener('input', autoResizeTextarea);
+
+function autoResizeTextarea() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+}
+
+document.getElementById('btn-send').addEventListener('click', () => sendMessage(input.value.trim()));
+
+async function clearChat() {
+  const wrap = document.getElementById('chat-wrap');
+  Array.from(wrap.children).forEach(c => { if (c.id !== 'empty-state') c.remove(); });
+  document.getElementById('empty-state').style.display = '';
+  resetPipeline();
+  if (backendOnline) {
+    await fetch(`${apiUrl()}/api/clear`, { method: 'POST' }).catch(()=>{});
+  }
+  toast('Conversation cleared', 'info');
+}
+
+function sendSuggestion(btn) { input.value = btn.textContent; sendMessage(btn.textContent); }
+
+/* ── Init ────────────────────────────────────────────── */
+checkBackend();
+</script>
+</body>
+</html>

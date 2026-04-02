@@ -1,0 +1,53 @@
+[project]
+name = "rag-pipeline"
+version = "0.1.0"
+description = "6-Layer Agentic RAG Pipeline with LangGraph orchestration"
+requires-python = ">=3.10"
+dependencies = [
+    # LangGraph / LangChain core
+    "langgraph>=0.4",
+    "langchain>=0.3",
+    "langchain-core>=0.3",
+    "langchain-community>=0.3",
+    "langchain-text-splitters>=0.3",
+
+    # Model providers
+    "langchain-openai>=0.3",
+    "langchain-google-genai>=2.1",
+    "langchain-ollama>=0.3",
+
+    # Embeddings
+    "sentence-transformers>=3.0",
+
+    # Vector store
+    "chromadb>=0.6",
+
+    # BM25 sparse retrieval
+    "rank-bm25>=0.2",
+
+    # Cross-encoder reranker
+    "transformers>=4.40",
+
+    # Ragas evaluation
+    "ragas>=0.2",
+
+    # Utilities
+    "python-dotenv>=1.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "rich>=13.0",
+    "tiktoken>=0.7",
+    "streamlit>=1.38",
+
+    # Document loaders
+    "pypdf>=4.0",
+    "docx2txt>=0.8",
+    "unstructured>=0.16",
+]
+
+[project.scripts]
+rag = "main:cli"
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.backends._legacy:_Backend"
