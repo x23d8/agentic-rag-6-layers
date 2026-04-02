@@ -203,20 +203,3 @@ uvicorn api_server:app --reload
 Place PDF, TXT, Markdown, or DOCX files in the `data/` directory (or whichever directory you specify with `--data-dir`). On first run, documents are automatically chunked and indexed into ChromaDB. Use `--reindex` to rebuild the index after adding new documents.
 
 ---
-
-## Extending the System
-
-**Adding a new LLM provider:**
-
-1. Create a new file in `mcp/` (e.g., `mcp/anthropic_provider.py`)
-2. Implement the `ModelProvider` abstract class with `get_chat_model()` and `get_embeddings()`
-3. Register the provider in `mcp/registry.py` by adding it to `_register_defaults()`
-4. Add the corresponding API key to `config.py` and your `.env` file
-
-**Adjusting retrieval behavior:**
-
-All retrieval parameters are exposed in `config.py`: `retrieval_top_k`, `rerank_top_k`, `bm25_top_k`, and `max_retries`. The Streamlit UI also lets you adjust these at runtime.
-
-**Custom evaluation metrics:**
-
-Extend `evaluation/ragas_eval.py` to add additional Ragas metrics or custom evaluation logic.
