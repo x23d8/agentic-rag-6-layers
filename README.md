@@ -10,8 +10,6 @@ A production-grade Retrieval-Augmented Generation system built with LangGraph th
   <img src="./architecture_graph.png" width="600"/>
 </p>
 
-Refer to the SVG diagrams in the repository root for visual representations of the critique node flow (`accuracy_faithfulness_layer.svg`), scoring criteria mapping (`tech_stack_vs_scoring.svg`), and the full pipeline (`final_rag_pipeline_flow.svg`).
-
 ---
 
 ## What Makes This Different
